@@ -6,7 +6,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 const apiId = parseInt(process.env.TELEGRAM_API_ID);
 const apiHash = process.env.TELEGRAM_API_HASH;
 
-// Função Auxiliar: Spintax (Gira o texto)
+// Função Auxiliar: Spintax (Gira o texto para variar mensagens)
 function spinText(text) {
   if (!text) return "";
   return text.replace(/{([^{}]+)}/g, (match, content) => {
@@ -20,23 +20,19 @@ export default async function handler(req, res) {
 
   let { senderPhone, target, message, leadDbId } = req.body;
 
-  // 1. Processa o Spintax
+  // 1. Processa o Spintax (Gera a variação única desta mensagem)
   const finalMessage = spinText(message);
 
-  // 2. Prepara a Mensagem com "Botão Fake" (Markdown)
-  // Isso cria um link clicável bonito se você usar [Texto](Link) na mensagem
-  const messageWithMarkdown = finalMessage; 
-
-  // 3. Tratamento do Alvo (ID Numérico vs Username)
+  // 2. Tratamento do Alvo (ID Numérico vs Username)
   if (/^\d+$/.test(target)) {
     try {
-        target = BigInt(target); // Converte para BigInt se for apenas números
+        target = BigInt(target); // Converte para BigInt se for apenas números (ID)
     } catch (e) {
         return res.status(400).json({ error: "ID de usuário inválido" });
     }
   }
 
-  // 4. Busca a sessão no banco
+  // 3. Busca a sessão do remetente no banco
   const { data } = await supabase
     .from('telegram_sessions')
     .select('session_string')
@@ -53,26 +49,27 @@ export default async function handler(req, res) {
   try {
     await client.connect();
 
-    // --- FUNCIONALIDADE EXTRA: SIMULAÇÃO HUMANA ---
-    // Avisa que está "Digitando..." por 2 segundos
+    // --- SIMULAÇÃO HUMANA ---
+    // Avisa que está "Digitando..." por 2 a 4 segundos (aleatório)
+    const typingTime = Math.floor(Math.random() * 2000) + 2000;
     await client.invoke(new Api.messages.SetTyping({
         peer: target,
         action: new Api.SendMessageTypingAction()
     }));
-    await new Promise(r => setTimeout(r, 2000)); // Delay fake
+    await new Promise(r => setTimeout(r, typingTime)); 
 
-    // 5. Envia a Mensagem
+    // 4. Envia a Mensagem
     await client.sendMessage(target, { 
-      message: messageWithMarkdown,
+      message: finalMessage,
       parseMode: "markdown", // Permite links mascarados [Texto](Url)
       linkPreview: true      // Mostra a foto do site (aumenta conversão)
     });
     
     await client.disconnect();
 
-    // 6. Atualiza o Status no CRM (Se veio do disparo automático)
+    // 5. Atualiza o Status na tabela NOVA (leads_hottrack)
     if (leadDbId) {
-        await supabase.from('harvested_leads')
+        await supabase.from('leads_hottrack')
             .update({ status: 'sent', last_contacted_at: new Date() })
             .eq('id', leadDbId);
     }
@@ -88,18 +85,17 @@ export default async function handler(req, res) {
     
     console.error(`Erro no disparo de ${senderPhone}:`, error);
 
-    // Tratamento de Erros Específicos
     let errorMessage = error.message || 'Erro desconhecido';
 
-    // Se o erro for grave (Ban/Revoked), inativa a conta
+    // Se a conta caiu/foi desconectada
     if (errorMessage.includes('AUTH_KEY') || errorMessage.includes('SESSION_REVOKED')) {
         await supabase.from('telegram_sessions').update({ is_active: false }).eq('phone_number', senderPhone);
         errorMessage = 'Conta desconectada ou banida';
     }
 
-    // Se tiver ID do banco, marca como falha
+    // Se falhou, marca na tabela NOVA (leads_hottrack)
     if (leadDbId) {
-        await supabase.from('harvested_leads')
+        await supabase.from('leads_hottrack')
             .update({ status: 'failed' })
             .eq('id', leadDbId);
     }
