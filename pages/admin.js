@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
 
 export default function AdminPanel() {
-  // --- ESTADO DE LOGIN ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // --- ESTADOS DO SISTEMA ---
   const [tab, setTab] = useState('dashboard'); 
   const [sessions, setSessions] = useState([]);
   const [stats, setStats] = useState({ total: 0, pending: 0, sent: 0 });
@@ -14,21 +12,17 @@ export default function AdminPanel() {
   const [selectedPhones, setSelectedPhones] = useState(new Set());
   const [processing, setProcessing] = useState(false);
 
-  // Estados CRM
   const [msg, setMsg] = useState('{Olá|Oi}, tudo bem?');
-  
-  // Estados Spy
   const [spyPhone, setSpyPhone] = useState('');
   const [chats, setChats] = useState([]);
   const [loadingChats, setLoadingChats] = useState(false);
 
-  // Estados Tools
   const [newName, setNewName] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [storyUrl, setStoryUrl] = useState('');
   const [storyCaption, setStoryCaption] = useState('');
 
-  // --- LOGIN ---
+  // LOGIN
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -41,14 +35,12 @@ export default function AdminPanel() {
       const data = await res.json();
       if (res.ok && data.success) {
         setIsAuthenticated(true);
-        fetchData(); 
       } else {
         setLoginError('Acesso Negado.');
       }
     } catch (error) { setLoginError('Erro de conexão.'); }
   };
 
-  // --- DADOS ---
   const fetchData = async () => {
     try {
       const sRes = await fetch('/api/list-sessions');
@@ -64,14 +56,12 @@ export default function AdminPanel() {
   }, [isAuthenticated]);
 
   const addLog = (text) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${text}`, ...prev]);
-  
   const toggleSelect = (phone) => {
     const newSet = new Set(selectedPhones);
     if (newSet.has(phone)) newSet.delete(phone); else newSet.add(phone);
     setSelectedPhones(newSet);
   };
 
-  // --- DELETE ---
   const handleDelete = async (phone) => {
       if (!confirm(`Apagar ${phone}?`)) return;
       try {
@@ -89,7 +79,6 @@ export default function AdminPanel() {
       } catch (e) { addLog(`❌ Erro ao deletar.`); }
   };
 
-  // --- ACTIONS ---
   const startRealCampaign = async () => {
      if (selectedPhones.size === 0) return alert('Selecione contas!');
      setProcessing(true);
@@ -156,7 +145,6 @@ export default function AdminPanel() {
       setProcessing(false); addLog('✅ Feito.');
   };
 
-  // --- RENDER ---
   if (!isAuthenticated) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0d1117', fontFamily: 'monospace' }}>
@@ -172,23 +160,6 @@ export default function AdminPanel() {
 
   return (
     <div style={{ backgroundColor: '#0d1117', color: '#c9d1d9', minHeight: '100vh', padding: '20px', fontFamily: 'monospace' }}>
-      
-      {/* Top Bar */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-          <div style={{ background: '#161b22', padding: '15px', borderRadius: '6px', textAlign: 'center', border: '1px solid #30363d' }}>
-              <div style={{ fontSize: '20px', color: '#fff' }}>{stats.total}</div>
-              <div style={{ fontSize: '10px', color: '#8b949e' }}>LEADS TOTAIS</div>
-          </div>
-          <div style={{ background: '#161b22', padding: '15px', borderRadius: '6px', textAlign: 'center', border: '1px solid #d29922' }}>
-              <div style={{ fontSize: '20px', color: '#d29922' }}>{stats.pending}</div>
-              <div style={{ fontSize: '10px', color: '#8b949e' }}>PENDENTES</div>
-          </div>
-          <div style={{ background: '#161b22', padding: '15px', borderRadius: '6px', textAlign: 'center', border: '1px solid #238636' }}>
-              <div style={{ fontSize: '20px', color: '#238636' }}>{stats.sent}</div>
-              <div style={{ fontSize: '10px', color: '#8b949e' }}>ENVIADOS</div>
-          </div>
-      </div>
-
       <div style={{ marginBottom: '20px', borderBottom: '1px solid #30363d' }}>
         <button onClick={() => setTab('dashboard')} style={{ padding: '10px 20px', background: tab === 'dashboard' ? '#238636' : 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>🚀 CRM</button>
         <button onClick={() => setTab('spy')} style={{ padding: '10px 20px', background: tab === 'spy' ? '#8957e5' : 'transparent', border: 'none', color: 'white', cursor: 'pointer' }}>🕵️ Espião</button>
@@ -196,20 +167,18 @@ export default function AdminPanel() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px' }}>
-        
-        {/* Esquerda */}
         <div>
             {tab === 'dashboard' && (
                 <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
-                    <h3>Disparo em Massa</h3>
+                    <h3>Disparo ({stats.pending} pendentes)</h3>
                     <textarea value={msg} onChange={e => setMsg(e.target.value)} style={{ width: '100%', height: '80px', margin: '10px 0', background: '#0d1117', border: '1px solid #30363d', color: '#fff', padding: '10px' }} />
-                    <button onClick={startRealCampaign} disabled={processing} style={{ width: '100%', padding: '15px', background: '#238636', color: 'white', border: 'none', fontWeight: 'bold' }}>{processing ? 'ENVIANDO...' : '▶️ DISPARAR PARA PENDENTES'}</button>
+                    <button onClick={startRealCampaign} disabled={processing} style={{ width: '100%', padding: '15px', background: '#238636', color: 'white', border: 'none', fontWeight: 'bold' }}>{processing ? 'ENVIANDO...' : '▶️ DISPARAR'}</button>
                 </div>
             )}
-
             {tab === 'spy' && (
                 <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
-                     {!spyPhone ? <p>Selecione uma conta &gt;&gt;</p> : (
+                     {/* CORREÇÃO AQUI: Trocado >> por seta HTML */}
+                     {!spyPhone ? <p>Selecione uma conta &rarr;</p> : (
                         <div>
                             <h4>Grupos de {spyPhone}</h4>
                             {loadingChats && <p>Carregando...</p>}
@@ -228,29 +197,25 @@ export default function AdminPanel() {
                      )}
                 </div>
             )}
-
             {tab === 'tools' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
+                    <div style={{ backgroundColor: '#161b22', padding: '20px' }}>
                         <h3>🎭 Camuflagem</h3>
-                        <input type="text" placeholder="Nome" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: 'white' }} />
-                        <input type="text" placeholder="Foto URL" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: 'white' }} />
+                        <input type="text" placeholder="Nome" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px' }} />
+                        <input type="text" placeholder="Foto URL" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px' }} />
                         <button onClick={handleUpdateProfile} style={{ width: '100%', padding: '10px', background: '#8957e5', color: 'white', border: 'none' }}>ATUALIZAR</button>
                     </div>
-                    <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
+                    <div style={{ backgroundColor: '#161b22', padding: '20px' }}>
                         <h3>📸 Story</h3>
-                        <input type="text" placeholder="Mídia URL" value={storyUrl} onChange={e => setStoryUrl(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: 'white' }} />
+                        <input type="text" placeholder="Mídia URL" value={storyUrl} onChange={e => setStoryUrl(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px' }} />
                         <button onClick={handlePostStory} style={{ width: '100%', padding: '10px', background: '#1f6feb', color: 'white', border: 'none' }}>POSTAR</button>
                     </div>
                 </div>
             )}
-            
             <div style={{ marginTop: '20px', background: '#000', padding: '10px', height: '200px', overflowY: 'auto' }}>
                 {logs.map((l, i) => <div key={i}>{l}</div>)}
             </div>
         </div>
-
-        {/* Direita */}
         <div style={{ backgroundColor: '#161b22', padding: '20px', borderRadius: '6px' }}>
             <h3>Contas ({sessions.length})</h3>
             {sessions.map(s => (
@@ -263,7 +228,6 @@ export default function AdminPanel() {
                 </div>
             ))}
         </div>
-
       </div>
     </div>
   );
