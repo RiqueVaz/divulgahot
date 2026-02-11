@@ -29,61 +29,81 @@ export default async function handler(req, res) {
     let targetId = chatId;
     let finalSource = chatName;
 
-    // --- LÓGICA INTELIGENTE ---
+    // --- LÓGICA DE CANAIS/SUPERGRUPOS ---
+    // Se for canal broadcast, tenta achar o vinculado.
     if (isChannel) {
         try {
-            // Se for Canal REAL (Broadcast), tenta achar os comentários
             const fullChannel = await client.invoke(new Api.channels.GetFullChannel({
                 channel: chatId
             }));
-            
             if (fullChannel.fullChat.linkedChatId) {
                 targetId = fullChannel.fullChat.linkedChatId.toString();
                 finalSource = `${chatName} (Comentários)`;
             } else {
-                throw new Error("Este canal é fechado e não tem grupo de comentários vinculado.");
+                // Tenta forçar como se fosse Megagroup (às vezes a flag vem errada)
+                targetId = chatId; 
             }
         } catch (e) {
-            await client.disconnect();
-            return res.status(400).json({ error: e.message || "Erro ao analisar canal." });
+             // Se falhar a análise, tenta extrair do próprio ID (vai que é supergrupo)
+             targetId = chatId;
         }
     }
 
-    // Extração (Pega até 3500 membros)
-    let participants;
+    // --- MODO ASPIRADOR DE PÓ (GetParticipants com Filtro) ---
+    // Em vez de pegar aleatório, pedimos os RECENTES (gente ativa)
+    let participants = [];
     try {
-        participants = await client.getParticipants(targetId, { limit: 3500 });
+        // Tenta pegar os RECENTES primeiro (ouro puro)
+        const recent = await client.getParticipants(targetId, { 
+            limit: 4000,
+            filter: new Api.ChannelParticipantsRecent() 
+        });
+        participants = recent;
+
+        // Se vier pouco (menos de 100) em um grupo gigante, tenta busca padrão
+        if (participants.length < 100) {
+            const all = await client.getParticipants(targetId, { limit: 4000 });
+            participants = all;
+        }
+
     } catch (e) {
         await client.disconnect();
-        return res.status(400).json({ error: "Lista de membros oculta ou grupo privado." });
+        return res.status(400).json({ error: "Grupo privado ou oculto (Anti-Scraping ativo)." });
     }
 
     const leads = [];
     for (const p of participants) {
+      // FILTRO MENOS AGRESSIVO: Aceita quem não tem username
+      // A única coisa que ignoramos é BOT, DELETADO e VOCÊ MESMO
       if (!p.bot && !p.deleted && !p.isSelf) { 
+        
         const name = [p.firstName, p.lastName].filter(Boolean).join(' ');
+        
         leads.push({
             user_id: p.id.toString(),
+            // Se não tiver username, salva null (o disparo funciona pelo ID)
             username: p.username ? `@${p.username}` : null,
             name: name || 'Sem Nome',
             phone: p.phone || null,
             origin_group: finalSource,
-            chat_id: targetId.toString(), // <--- CAMPO NOVO ADICIONADO
+            chat_id: targetId.toString(),
             status: 'pending',
             message_log: `Extraído de ${finalSource}`
         });
       }
     }
 
-    const { error } = await supabase.from('leads_hottrack').upsert(leads, { 
-        onConflict: 'user_id', ignoreDuplicates: true 
-    });
+    // Upsert em Lote (Lida com duplicatas automaticamente)
+    if (leads.length > 0) {
+        const { error } = await supabase.from('leads_hottrack').upsert(leads, { 
+            onConflict: 'user_id', ignoreDuplicates: true 
+        });
+        if(error) throw error;
+    }
 
     await client.disconnect();
     
-    if(error) throw error;
-
-    res.status(200).json({ success: true, count: leads.length, message: `${leads.length} leads extraídos de ${finalSource}` });
+    res.status(200).json({ success: true, count: leads.length, message: `${leads.length} leads sugados de ${finalSource}` });
 
   } catch (error) {
     console.error(error);
