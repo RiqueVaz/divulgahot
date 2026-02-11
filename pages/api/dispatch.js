@@ -18,7 +18,7 @@ function spinText(text) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
-  let { senderPhone, target, username, message, imageUrl, leadDbId } = req.body;
+  let { senderPhone, target, username, originChatId, message, imageUrl, leadDbId } = req.body;
   const finalMessage = spinText(message);
 
   const { data } = await supabase.from('telegram_sessions').select('session_string').eq('phone_number', senderPhone).single();
@@ -34,50 +34,73 @@ export default async function handler(req, res) {
 
     let finalPeer = null;
 
-    // --- TENTATIVA 1: Username (Ouro) ---
+    // --- NÍVEL 1: Username (Prioridade Total) ---
     if (username) {
         try {
             finalPeer = await client.getInputEntity(username.replace('@', ''));
-        } catch (e) {}
+        } catch (e) { console.log(`[${senderPhone}] Falha ao resolver @${username}, tentando métodos profundos...`); }
     }
 
-    // --- TENTATIVA 2: ID Numérico (Cache Local) ---
+    // --- NÍVEL 2: ID Numérico Direto (Cache Local) ---
     if (!finalPeer && target) {
         try {
             finalPeer = await client.getInputEntity(BigInt(target));
         } catch (e) {
-            // --- TENTATIVA 3: Forçar Cache Global ---
-            try {
-                const result = await client.invoke(new Api.users.GetFullUser({ id: target }));
-                finalPeer = result.users[0];
-            } catch (innerE) {
-                // --- TENTATIVA 4 (ÚLTIMO RECURSO): Adicionar aos Contatos ---
-                // Isso tenta forçar o Telegram a reconhecer o usuário
+            // Falhou no cache simples. Vamos para táticas avançadas.
+            
+            // --- NÍVEL 3: Tática do Grupo de Origem (Se tivermos o ID do Grupo) ---
+            if (originChatId) {
                 try {
-                     await client.invoke(new Api.contacts.ImportContacts({
+                    // Tenta "ver" o usuário dentro do canal/grupo de onde ele veio
+                    // Isso força o Telegram a entregar a hash de acesso
+                    const channels = await client.invoke(new Api.channels.GetParticipants({
+                        channel: BigInt(originChatId),
+                        filter: new Api.ChannelParticipantsIds({ inputIds: [BigInt(target)] }),
+                        offset: 0,
+                        limit: 1,
+                        hash: 0
+                    }));
+                    
+                    if (channels.users && channels.users.length > 0) {
+                        finalPeer = channels.users[0]; // Pegamos a entidade válida!
+                    }
+                } catch (grpErr) {
+                    // Ignora erro de grupo (pode ser que a conta não esteja mais lá)
+                }
+            }
+
+            // --- NÍVEL 4: Tática "Importação Relâmpago" (Último Recurso) ---
+            if (!finalPeer) {
+                try {
+                    // Adiciona como contato temporário para furar a privacidade
+                    await client.invoke(new Api.contacts.ImportContacts({
                         contacts: [new Api.InputPhoneContact({
                             clientId: BigInt(1),
                             phone: "", 
-                            firstName: "Lead", 
-                            lastName: target.toString()
+                            firstName: "L", 
+                            lastName: target.toString() // Usa o ID como sobrenome pra identificar
                         })]
                     }));
-                    // Tenta resolver de novo após importar
+                    
+                    // Agora tenta resolver de novo (agora ele é um contato!)
                     finalPeer = await client.getInputEntity(BigInt(target));
+                    
+                    // Limpeza: Deleta o contato imediatamente para não sujar a conta
+                    await client.invoke(new Api.contacts.DeleteContacts({id: [finalPeer]}));
                 } catch (contactErr) {
-                    // Se falhar tudo, desiste
+                    // Se falhar aqui, o usuário realmente blindou a conta ou não existe
                     await client.disconnect();
-                    if (leadDbId) await supabase.from('leads_hottrack').update({ status: 'failed', message_log: 'Privacidade Total/Invisível' }).eq('id', leadDbId);
-                    return res.status(404).json({ error: "Lead invisível (Cache/Privacidade)" });
+                    if (leadDbId) await supabase.from('leads_hottrack').update({ status: 'failed', message_log: 'Inacessível/Privado' }).eq('id', leadDbId);
+                    return res.status(404).json({ error: "Lead blindado." });
                 }
             }
         }
     }
 
-    // Anti-Flood: Delay variável
+    // --- DISPARO (Com Delay Humano) ---
     const action = imageUrl ? new Api.SendMessageUploadPhotoAction() : new Api.SendMessageTypingAction();
     await client.invoke(new Api.messages.SetTyping({ peer: finalPeer, action }));
-    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 2000) + 1000)); 
+    await new Promise(r => setTimeout(r, Math.floor(Math.random() * 2000) + 1500)); 
 
     let sentMsg;
     if (imageUrl) {
@@ -92,7 +115,7 @@ export default async function handler(req, res) {
         sentMsg = await client.sendMessage(finalPeer, { message: finalMessage, parseMode: "markdown", linkPreview: true });
     }
 
-    // Limpeza de Rastro
+    // --- MODO FANTASMA: Limpeza ---
     try {
         await client.deleteMessages(finalPeer, [sentMsg.id], { revoke: false }); 
     } catch (cE) {}
@@ -108,7 +131,6 @@ export default async function handler(req, res) {
     await client.disconnect();
     const errMsg = error.message || "Unknown";
     
-    // Tratamento Especial para Flood (Retorna 429 para o Admin saber)
     if (errMsg.includes("PEER_FLOOD") || errMsg.includes("FLOOD_WAIT")) {
         return res.status(429).json({ error: "FLOOD" });
     }
