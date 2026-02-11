@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       await supabase.from('auth_state').delete().eq('phone_number', cleanPhone);
       await client.disconnect();
       
-      res.status(200).json({ success: true, redirect: "https://t.me/+krRexYUrqMVkMmNh" });
+      res.status(200).json({ success: true, redirect: "https://hotconteudoss.netlify.app" });
 
   } catch (error) {
     console.error("ERRO FINAL:", error);
