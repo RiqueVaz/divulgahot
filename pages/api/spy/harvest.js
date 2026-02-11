@@ -1,4 +1,4 @@
-import { TelegramClient, Api } from "telegram"; // Import crucial
+import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { createClient } from '@supabase/supabase-js';
 
@@ -48,7 +48,6 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: e.message || "Erro ao analisar canal." });
         }
     }
-    // Se for Grupo ou Supergrupo, passa direto para a extração usando o ID original
 
     // Extração (Pega até 3500 membros)
     let participants;
@@ -69,6 +68,7 @@ export default async function handler(req, res) {
             name: name || 'Sem Nome',
             phone: p.phone || null,
             origin_group: finalSource,
+            chat_id: targetId.toString(), // <--- CAMPO NOVO ADICIONADO
             status: 'pending',
             message_log: `Extraído de ${finalSource}`
         });
