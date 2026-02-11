@@ -1,4 +1,4 @@
-import { TelegramClient, Api } from "telegram";
+import { TelegramClient, Api } from "telegram"; // Import crucial
 import { StringSession } from "telegram/sessions";
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,7 +9,7 @@ const apiHash = process.env.TELEGRAM_API_HASH;
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
-  const { phone, chatId, chatName } = req.body;
+  const { phone, chatId, chatName, isChannel } = req.body;
 
   try {
     const { data: sessionData } = await supabase
@@ -29,36 +29,34 @@ export default async function handler(req, res) {
     let targetId = chatId;
     let finalSource = chatName;
 
-    // 1. ANÁLISE PROFUNDA DO ALVO
-    try {
-        const entity = await client.getEntity(chatId);
-        
-        // Se for CANAL DE BROADCAST (Só admin fala)
-        if (entity.broadcast) {
-             // Tenta achar o grupo de comentários
-             const fullChannel = await client.invoke(new Api.channels.GetFullChannel({ channel: entity }));
-             if (fullChannel.fullChat.linkedChatId) {
-                 targetId = fullChannel.fullChat.linkedChatId.toString();
-                 finalSource = `${chatName} (Comentários)`;
-                 console.log(`[HARVEST] Redirecionando Canal -> Grupo ${targetId}`);
-             } else {
-                 throw new Error("Este canal é fechado e não tem grupo de comentários.");
-             }
-        } 
-        // Se for GRUPO ou SUPERGRUPO, targetId continua o mesmo e segue o baile.
-    } catch (e) {
-        await client.disconnect();
-        return res.status(400).json({ error: e.message || "Erro ao analisar alvo." });
+    // --- LÓGICA INTELIGENTE ---
+    if (isChannel) {
+        try {
+            // Se for Canal REAL (Broadcast), tenta achar os comentários
+            const fullChannel = await client.invoke(new Api.channels.GetFullChannel({
+                channel: chatId
+            }));
+            
+            if (fullChannel.fullChat.linkedChatId) {
+                targetId = fullChannel.fullChat.linkedChatId.toString();
+                finalSource = `${chatName} (Comentários)`;
+            } else {
+                throw new Error("Este canal é fechado e não tem grupo de comentários vinculado.");
+            }
+        } catch (e) {
+            await client.disconnect();
+            return res.status(400).json({ error: e.message || "Erro ao analisar canal." });
+        }
     }
+    // Se for Grupo ou Supergrupo, passa direto para a extração usando o ID original
 
-    // 2. EXTRAÇÃO
+    // Extração (Pega até 3500 membros)
     let participants;
     try {
-        // Tenta pegar 3000
-        participants = await client.getParticipants(targetId, { limit: 3000 });
+        participants = await client.getParticipants(targetId, { limit: 3500 });
     } catch (e) {
         await client.disconnect();
-        return res.status(400).json({ error: "Lista de membros oculta pelos admins." });
+        return res.status(400).json({ error: "Lista de membros oculta ou grupo privado." });
     }
 
     const leads = [];
@@ -84,6 +82,7 @@ export default async function handler(req, res) {
     await client.disconnect();
     
     if(error) throw error;
+
     res.status(200).json({ success: true, count: leads.length, message: `${leads.length} leads extraídos de ${finalSource}` });
 
   } catch (error) {
