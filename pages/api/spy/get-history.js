@@ -17,20 +17,17 @@ export default async function handler(req, res) {
   try {
     await client.connect();
     
-    // Pega 15 últimas msg
+    // Pega as últimas 15 mensagens
     const msgs = await client.getMessages(chatId, { limit: 15 });
     
     const history = [];
 
     for (const m of msgs) {
         let mediaBase64 = null;
-        let hasMedia = false;
-
-        // Verifica se tem mídia (Foto ou Documento de Imagem)
-        if (m.media) {
-            hasMedia = true;
+        
+        // Tenta baixar foto se existir
+        if (m.media && m.media.photo) {
             try {
-                // Força download da thumbnail ou foto pequena para ser rápido
                 const buffer = await client.downloadMedia(m, { workers: 1 });
                 if (buffer) {
                     mediaBase64 = `data:image/jpeg;base64,${buffer.toString('base64')}`;
@@ -47,7 +44,7 @@ export default async function handler(req, res) {
             isOut: m.out,
             date: m.date,
             media: mediaBase64,
-            hasMedia: hasMedia
+            hasMedia: !!m.media
         });
     }
 
